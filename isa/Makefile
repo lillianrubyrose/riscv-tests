@@ -46,14 +46,18 @@ default: all
 
 RISCV_PREFIX ?= riscv$(XLEN)-unknown-elf-
 RISCV_GCC ?= $(RISCV_PREFIX)gcc
-RISCV_GCC_OPTS ?= -static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles
+RISCV_GCC_OPTS ?= -static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles -fno-stack-protector -ffreestanding -std=c23
 RISCV_OBJDUMP ?= $(RISCV_PREFIX)objdump --disassemble-all --disassemble-zeroes --section=.text --section=.text.startup --section=.text.init --section=.data
+RISCV_OBJCOPY ?= $(RISCV_PREFIX)objcopy -O binary
 RISCV_SIM ?= spike
 
 vpath %.S $(src_dir)
 
 #------------------------------------------------------------
 # Build assembly tests
+
+%.bin: %
+	$(RISCV_OBJCOPY) $< $@
 
 %.dump: %
 	$(RISCV_OBJDUMP) $< > $@
@@ -70,13 +74,11 @@ $$($(1)_p_tests): $(1)-p-%: $(1)/%.S
 	$$(RISCV_GCC) $(2) $$(RISCV_GCC_OPTS) -I$(src_dir)/../env/p -I$(src_dir)/macros/scalar -T$(src_dir)/../env/p/link.ld $$< -o $$@
 $(1)_tests += $$($(1)_p_tests)
 
-$$($(1)_v_tests): $(1)-v-%: $(1)/%.S
-	$$(RISCV_GCC) $(2) $$(RISCV_GCC_OPTS) -DENTROPY=0x$$(shell echo \$$@ | md5sum | cut -c 1-7) -std=gnu99 -O2 -I$(src_dir)/../env/v -I$(src_dir)/macros/scalar -T$(src_dir)/../env/v/link.ld $(src_dir)/../env/v/entry.S $(src_dir)/../env/v/*.c $$< -o $$@
-$(1)_tests += $$($(1)_v_tests)
-
 $(1)_tests_dump = $$(addsuffix .dump, $$($(1)_tests))
+$(1)_tests_flat_bin = $$(addsuffix .bin, $$($(1)_tests))
 
 $(1): $$($(1)_tests_dump)
+$(1): $$($(1)_tests_flat_bin)
 
 .PHONY: $(1)
 
@@ -120,6 +122,7 @@ $(eval $(call compile_template,rv64mi,-march=rv64g -mabi=lp64))
 $(eval $(call compile_template,hypervisor,-march=rv64gh -mabi=lp64))
 endif
 
+tests_flat_bin = $(addsuffix .bin, $(tests))
 tests_dump = $(addsuffix .dump, $(tests))
 tests_hex = $(addsuffix .hex, $(tests))
 tests_out = $(addsuffix .out, $(filter rv64%,$(tests)))
@@ -127,12 +130,12 @@ tests32_out = $(addsuffix .out32, $(filter rv32%,$(tests)))
 
 run: $(tests_out) $(tests32_out)
 
-junk += $(tests) $(tests_dump) $(tests_hex) $(tests_out) $(tests32_out)
+junk += $(tests) $(tests_dump) $(tests_hex) $(tests_out) $(tests32_out) $(tests_flat_bin)
 
 #------------------------------------------------------------
 # Default
 
-all: $(tests_dump)
+all: $(tests_dump) $(tests_flat_bin)
 
 #------------------------------------------------------------
 # Clean up
